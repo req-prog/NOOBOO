@@ -43,6 +43,18 @@ canvas{display:block;width:100%;height:100%}
 #ov .row.me{border-color:#ffd23f}#ov .row .pl{width:28px;color:#9fe8ff}#ov .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#ov .row .vl{display:flex;align-items:center;color:#ffd23f}
 #ov .row.t1 .pl{color:#ffd23f}#ov .row.t2 .pl{color:#e0e0e0}#ov .row.t3 .pl{color:#d9894a}
 #ov .lb{margin-top:8px;max-height:46vh;overflow:auto;touch-action:pan-y}
+#ov .it,#ov .tab{transition:transform .08s,filter .08s}
+#ov .it:active,#ov .tab:active{transform:translateY(3px);filter:brightness(.85)}
+#ov .say{z-index:6}
+#ov .pickwrap{position:absolute;inset:0;z-index:4;display:flex;align-items:center;justify-content:center;background:rgba(2,3,10,.82);padding:12px;box-sizing:border-box}
+#ov .pickbox{width:min(360px,100%);max-height:100%;overflow:auto;touch-action:pan-y;background:#1b2233;border:4px solid #000;box-shadow:inset 0 0 0 4px #e8e8e8;padding:16px 14px;box-sizing:border-box;text-align:center}
+#ov .pksw{height:64px;border:3px solid #000;margin:8px 0}
+#ov .pkcode{font-size:16px;color:#ffd23f;margin-bottom:6px}
+#ov .pkrow{display:flex;align-items:center;gap:8px;margin:8px 0}
+#ov .pkl{width:16px;font-size:16px}#ov .pkv{width:34px;text-align:right;font-size:13px}
+#ov input.pkr{flex:1;width:auto;min-width:0;height:26px;margin:0;padding:0;border:3px solid #000;-webkit-appearance:none;appearance:none;touch-action:none}
+#ov input.pkr::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:30px;background:#e8e8e8;border:3px solid #000;box-shadow:inset 0 -4px #a0a0a0}
+#ov input.pkr::-moz-range-thumb{width:12px;height:24px;border-radius:0;background:#e8e8e8;border:3px solid #000}
 </style></head><body>
 <canvas id="c"></canvas>
 <script>
@@ -120,7 +132,7 @@ const SB_URL='https://umfmcinbddiuoweoiyyn.supabase.co',SB_KEY='eyJhbGciOiJIUzI1
 const LEVEL_SEED=20261117,NICK_RE=/^[A-Za-z0-9_А-Яа-яЁё]{3,16}$/;
 // цвета одежды: id, название, hex (null = родной цвет спрайта), цена
 const COLS=[['def','СТАНДАРТ',null,0],['red','КРАСНЫЙ','#e53935',10],['orange','ОРАНЖЕВЫЙ','#fb8c00',15],['yellow','ЖЁЛТЫЙ','#fdd835',20],['lime','САЛАТОВЫЙ','#7cb342',25],['teal','БИРЮЗОВЫЙ','#00acc1',30],['pink','РОЗОВЫЙ','#ec407a',40],['purple','ФИОЛЕТОВЫЙ','#8e24aa',50],['white','БЕЛЫЙ','#f5f5f5',60],['black','ЧЁРНЫЙ','#2a2a2a',70],['brown','КОРИЧНЕВЫЙ','#6d4c41',80],['gold','ЗОЛОТОЙ','#ffd23f',150]].map(c=>({id:c[0],name:c[1],hex:c[2],rgb:c[2]?[1,3,5].map(i=>parseInt(c[2].substr(i,2),16)):null,price:c[3]}));
-const COLID=Object.fromEntries(COLS.map(c=>[c.id,c]));
+const COLID=new Proxy(Object.fromEntries(COLS.map(c=>[c.id,c])),{get(t,k){if(typeof k=='string'&&!(k in t)&&/^cu:[0-9a-f]{6}$/.test(k)){const h='#'+k.slice(3);t[k]={id:k,name:'СВОЙ',hex:h,rgb:[1,3,5].map(i=>parseInt(h.substr(i,2),16)),price:140,custom:true}}return t[k]}});
 const DEFHEX={shirt:'#3a3fa8',pants:'#4a7a4a'};
 let save={coins:0,total:0,own:{shirt:['def'],pants:['def']},eq:{shirt:'def',pants:'def'},prof:null,mp:false};
 try{const s=JSON.parse(localStorage.getItem('nooboo_save')||'null');if(s&&typeof s=='object'){
@@ -198,17 +210,37 @@ ov.addEventListener('click',e=>{if(e.target===ov)closeUi()});
 function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function patCanvas(rows,cm,px){const c=document.createElement('canvas');c.width=rows[0].length*px;c.height=rows.length*px;const x=c.getContext('2d');
  rows.forEach((r,j)=>{for(let i=0;i<r.length;i++){if(r[i]=='.')continue;x.fillStyle=cm[r[i]];x.fillRect(i*px,j*px,px,px)}});c.className='pix';c.style.width=c.width+'px';c.style.height=c.height+'px';return c}
-function openUi(k){ui=k;ov.style.display='flex';clearInterval(uiTimer);ov.className='';if(k=='shop'){setMusic('shop');decodeShop();renderShop()}else k=='top'?renderTop():renderMp()}
-function closeUi(){const was=ui;ui=null;ov.style.display='none';ov.innerHTML='';ov.className='';clearInterval(uiTimer);if(shopSt){cancelAnimationFrame(shopAnim);clearInterval(shopSt.sayT);clearInterval(shopSt.idleT);shopSt=null}if(was=='shop')setMusic('menu')}
+const UIDIR={shop:[0,1],mp:[-1,0],top:[1,0]},SLIDE='transform .55s cubic-bezier(.65,0,.35,1)';
+let uiOpenT=0,uiBusy=false,uiDir=[0,1],menuPress=null;const mpr={play:0,shop:0,mp:0,top:0};
+// клик от того же нажатия, что открыло окно, не должен попасть в плитки магазина
+ov.addEventListener('click',e=>{if(uiBusy||performance.now()-uiOpenT<500){e.stopImmediatePropagation();e.preventDefault()}},true);
+function camMove(open){const[dx,dy]=uiDir,off=a=>'translate('+(a*dx*100)+'%,'+(a*dy*100)+'%)';
+ if(open){ov.style.transition=cv.style.transition='none';ov.style.transform=off(1);cv.style.transform='none';void ov.offsetWidth;
+  ov.style.transition=cv.style.transition=SLIDE;ov.style.transform='none';cv.style.transform=off(-1)}
+ else{ov.style.transition=cv.style.transition=SLIDE;ov.style.transform=off(1);cv.style.transform='none'}}
+function openUi(k){if(uiBusy)return;const fresh=!ui;ui=k;ov.style.display='flex';clearInterval(uiTimer);ov.className='';if(k=='shop'){setMusic('shop');decodeShop();renderShop()}else k=='top'?renderTop():renderMp();
+ if(fresh){uiDir=UIDIR[k]||[0,1];uiOpenT=performance.now();uiBusy=true;camMove(true);setTimeout(()=>{uiBusy=false},560)}}
+function closeUi(){if(!ui||uiBusy)return;const was=ui;uiBusy=true;if(was=='shop')setMusic('menu');camMove(false);
+ setTimeout(()=>{ui=null;uiBusy=false;ov.style.display='none';ov.innerHTML='';ov.className='';ov.style.transition=ov.style.transform=cv.style.transition=cv.style.transform='';clearInterval(uiTimer);
+  if(shopSt){cancelAnimationFrame(shopAnim);clearInterval(shopSt.sayT);clearInterval(shopSt.idleT);shopSt=null}},560)}
 // ---- магазин: тёмный ларёк, светящиеся глаза и продавец, который комментирует покупки ----
 const SHOP_T={
- greet:['Ссс… заходи, нубик. Тут есть что надеть.','Добро пожаловать в мой ларёк. Не бойся глаз в темноте.','Цвета на любой вкус. Монеты — на мой.','О, свежий клиент… то есть гость!'],
- buy:['Отличный выбор! Тебе очень идёт.','Звон монет… лучшая музыка на свете.','Сделка заключена. Носи с гордостью.','Хе-хе, как раз то, что надо!','Ох, эта красота… ты сияешь!','Спасибо, нубик. Заходи ещё.'],
- big:['Ого, редкий цвет! Ты настоящий богач.','За такую красоту не жалко и монет, да?'],
- eq:['Старая добрая классика.','Надевай, надевай, он твой.','Этот цвет тебе всегда был к лицу.','Хороший выбор, он уже твой.'],
- no:['Монет не хватает… Побегай ещё.','Без монет — без цвета, нубик.','Сначала собери монетки, потом приходи.','Хе-хе, у меня не благотворительность.','Копилка пуста? Пилы ждут тебя.'],
- idle:['Не обращай внимания на глаза в темноте.','Они просто любопытные. И немного голодные.','Выбирай не торопись… у меня вечность.','Ты чувствуешь, как они смотрят?','Тссс… слышишь? Это монетки зовут.'],
- bye:['Приходи ещё… мы будем ждать.','Удачного бега, нубик!','Не споткнись о пилу.']};
+ greet:['Ссс… заходи, нубик. Тут есть во что одеться.','Добро пожаловать в мой ларёк. Глаз в темноте не бойся — они просто смотрят.','Футболки, штаны, любые цвета. Монеты — только золотые.','О, гость! Давно у меня никто не торговался.','Тише, не спугни глаза. Выбирай цвет, нубик.','Бегаешь быстро — одеваться надо ещё быстрее. Смотри товар.','Монетки с трассы несёшь? Хорошо. Обменяем на цвет.'],
+ broke:['Карманы пусты, нубик? Сначала побегай и собери монеты — я подожду.','Смотреть можно бесплатно. Покупать — только за монеты.','Ни одной монетки… Загляни ко мне после забега.'],
+ rich:['Ого, звенишь! Хватит даже на свой собственный цвет — 140 монет.','Вижу целую гору монет. Может, смешаешь свой оттенок? Палитра ждёт.','С такими деньгами можно не выбирать из готового. Хочешь свой цвет — только скажи.'],
+ buy:['Отличный выбор! Тебе правда идёт.','Звон монет — лучшая музыка в этом ларьке.','Сделка заключена. Носи с гордостью.','Хе-хе, как раз то, что нужно для забега.','Теперь тебя заметно издалека. Пилы тоже оценят.','Спасибо, нубик. Заходи ещё.'],
+ big:['Ого, дорогой цвет! Ты настоящий богач.','За такую красоту не жалко и монет, правда?','Такой оттенок встретишь не каждый день. Береги его на трассе.'],
+ eq:['Вернулся к проверенному. Верный выбор.','Надевай, он уже твой — платить второй раз не надо.','Этот цвет тебе всегда был к лицу.','Переоделся — и словно другой нубик.'],
+ no:['Не хватает {n} монет. Побегай ещё немного.','Тебе нужно ещё {n} монет, нубик. Пилы подождут.','Без монет цвет не продам. Не хватает {n}.','У меня не благотворительность. Принеси ещё {n} монет.','Копилка пуста? Ещё {n} монет — и он твой.'],
+ idle:['Не обращай внимания на глаза в темноте.','Они просто любопытные. И, может быть, голодные.','Не торопись. У меня впереди вечность.','Чувствуешь, как они смотрят?','Тссс… слышишь? Это монетки зовут из-под земли.','Одежда от пилы не спасёт. Зато погибнешь красиво.','Один цвет — одна покупка. Монеты назад не возвращаю.','Рекорд растёт? Значит, скоро накопишь и на золотой.','Мой любимый цвет — золотой. Звенит громче всех.','Хочешь уникальный цвет? Выбери «СВОЙ ЦВЕТ» — смешаешь сам.'],
+ tab:{shirt:['Футболка — первое, что видят пилы. Выбирай смело.','Верх решает половину образа. Что берём?','Цвет футболки — твоя визитная карточка на трассе.'],pants:['Штаны — основа основ. Без них далеко не убежишь.','Ноги работают больше всех — пусть будут красивыми.','Хорошие штаны — и прыжок как будто выше.']},
+ col:{def:['Стандарт — это классика. Простота не выходит из моды.'],red:['Красный — цвет скорости. Пилы заметят, но не догонят.'],orange:['Оранжевый… тепло, как свет костра в этой темноте.'],yellow:['Жёлтый — почти как монетка. Только не пытайся собрать себя.'],lime:['Салатовый! Свежо, ярко, видно за километр.'],teal:['Бирюзовый — цвет глубокой воды. Спокойный и холодный, как я.'],pink:['Розовый — смело. Мне нравится, нубик.'],purple:['Фиолетовый — цвет загадок. Ты мне уже нравишься.'],white:['Белый — как привидение. Только не пугай моих глаз.'],black:['Чёрный… почти как я. В тени пилам труднее тебя найти.'],brown:['Коричневый — цвет земли, по которой ты бегаешь. Практично!'],gold:['Золотой! Самый дорогой цвет в ларьке. Ты просто блистаешь.']},
+ cust:['Твой собственный цвет — такого нет ни у кого на свете.','Единственный экземпляр. Смешано лично тобой — я бы лучше не смог.','Свой оттенок! Помни: перекрасить его нельзя, только купить новый.','Вот это вкус! Такой цвет я бы и сам носил, если бы не плащ.'],
+ pick:['Смешай свой цвет. Но выбирай с умом — назад не перекрасишь.','Красный, зелёный, синий — крути ползунки, пока не понравится.','Один раз купил — навсегда. Новый цвет — новая покупка.'],
+ pickNo:['Передумал? Бывает. Монеты целы.','Не торопись. Хороший цвет любит подумать.'],
+ bye:['Приходи ещё… мы будем ждать.','Удачного бега, нубик!','Не споткнись о пилу.','Береги монеты. И ноги.','Возвращайся с полными карманами.']};
+const CUST_PRICE=140;
+const greetPool=()=>save.coins>=CUST_PRICE?SHOP_T.rich.concat(SHOP_T.greet):save.coins==0?SHOP_T.broke.concat(SHOP_T.greet.slice(0,2)):SHOP_T.greet;
 let lastPhrase='',shopAnim=0,shopSt=null;
 const pickP=a=>{let s;do{s=a[Math.floor(Math.random()*a.length)]}while(s==lastPhrase&&a.length>1);return lastPhrase=s};
 function blip(f,d,v,type){if(!AC||AC.state!='running')return;try{const o=AC.createOscillator(),g=AC.createGain(),t0=AC.currentTime;o.type=type||'square';o.frequency.value=f;g.gain.setValueAtTime(v||.04,t0);g.gain.exponentialRampToValueAtTime(.0001,t0+d);o.connect(g);g.connect(AC.destination);o.start(t0);o.stop(t0+d+.02)}catch(e){}}
@@ -225,11 +257,11 @@ function spawnEye(S,w,e){const gy=58,lx=S.lx||w*.6;e=e||{};
   if(Math.hypot(x-lx,y-32)<40)continue;if(Math.abs(x-S.cx)<16&&y>26&&y<50)continue;if(Math.abs(x-S.nx)<14&&y>gy-30)continue;e.x=x;e.y=y;break}
  if(e.x==null){e.x=8;e.y=10}
  e.gap=3+Math.floor(Math.random()*4);e.rgb=EYE_RGB[Math.floor(Math.random()*EYE_RGB.length)];e.age=0;e.life=5+Math.random()*7;e.ph=Math.random()*5;return e}
-function shopReact(kind,c){const S=shopSt;if(!S)return;
- if(kind=='buy'){shopSay(c.price>=100&&Math.random()<.7?pickP(SHOP_T.big):pickP(SHOP_T.buy));S.happy=1.6;S.hopT=0;S.flash=1;blip(880,.09,.05);setTimeout(()=>blip(1320,.14,.05),90);
+function shopReact(kind,c){const S=shopSt;if(!S)return;const cl=SHOP_T.col[c.id];
+ if(kind=='buy'){let P=c.custom?SHOP_T.cust:c.price>=100&&Math.random()<.7?SHOP_T.big:SHOP_T.buy;if(!c.custom&&cl&&Math.random()<.7)P=cl;shopSay(pickP(P));S.happy=1.6;S.hopT=0;S.flash=1;blip(880,.09,.05);setTimeout(()=>blip(1320,.14,.05),90);
   for(let i=0;i<16;i++)S.part.push({x:S.cx-14+Math.random()*6,y:48-4,vx:(Math.random()-.5)*1.1,vy:-(.6+Math.random()*1.4),l:50+Math.random()*30})}
- else if(kind=='eq'){shopSay(pickP(SHOP_T.eq));S.hopT=0;blip(520,.07,.04)}
- else{shopSay(pickP(SHOP_T.no));S.angry=1.4;blip(140,.22,.06,'sawtooth')}}
+ else if(kind=='eq'){shopSay(pickP(cl&&Math.random()<.5?cl:SHOP_T.eq));S.hopT=0;blip(520,.07,.04)}
+ else{shopSay(pickP(SHOP_T.no).replace('{n}',Math.max(1,c.price-save.coins)));S.angry=1.4;blip(140,.22,.06,'sawtooth')}}
 function buyColor(c){const S=shopSt;if(!S||S.closing)return;const o=save.own[shopTab];let kind;
  if(o.includes(c.id)){save.eq[shopTab]=c.id;kind='eq'}
  else if(save.coins>=c.price){save.coins-=c.price;o.push(c.id);save.eq[shopTab]=c.id;kind='buy'}
@@ -237,23 +269,49 @@ function buyColor(c){const S=shopSt;if(!S||S.closing)return;const o=save.own[sho
  if(kind!='no'){persist();mpMetaUpdate()}fillShop();shopReact(kind,c)}
 function fillShop(){const S=shopSt;if(!S)return;S.bal.innerHTML='';S.bal.append(patCanvas(COIN,COINC,3),el('span','','x'+save.coins));
  for(const k in S.tabs)S.tabs[k].className='tab'+(shopTab==k?' on':'');S.grid.innerHTML='';
- for(const c of COLS){const own=save.own[shopTab].includes(c.id),eq=save.eq[shopTab]==c.id;
+ const tile=c=>{const own=save.own[shopTab].includes(c.id),eq=save.eq[shopTab]==c.id;
   const b=el('button','it'+(eq?' eq':'')+(!own&&save.coins<c.price?' no':''));
-  const sw=el('div','c');sw.style.background=c.hex||DEFHEX[shopTab];b.append(sw,el('div','n',c.name));
+  const sw=el('div','c');sw.style.background=c.hex||DEFHEX[shopTab];b.append(sw,el('div','n',c.custom?c.hex.toUpperCase():c.name));
   const pr=el('div','pr');if(eq)pr.textContent='НА МНЕ';else if(own)pr.textContent='ЕСТЬ';else{pr.append(patCanvas(COIN,COINC,2),el('span','',' '+c.price))}b.append(pr);
-  b.onclick=()=>buyColor(c);S.grid.append(b)}}
+  b.onclick=()=>buyColor(c);S.grid.append(b)};
+ COLS.forEach(tile);
+ {const b=el('button','it'+(save.coins<CUST_PRICE?' no':'')),sw=el('div','c'),pr=el('div','pr');sw.style.background='conic-gradient(#f44,#fd3,#4e4,#3df,#55f,#f4d,#f44)';
+  pr.append(patCanvas(COIN,COINC,2),el('span','',' '+CUST_PRICE));b.append(sw,el('div','n','СВОЙ ЦВЕТ'),pr);b.onclick=openPicker;S.grid.append(b)}
+ save.own[shopTab].filter(i=>COLID[i]&&COLID[i].custom).forEach(i=>tile(COLID[i]))}
+function buyCustom(hex){const S=shopSt;if(!S||S.closing)return false;const id='cu:'+hex.slice(1).toLowerCase(),c=COLID[id],o=save.own[shopTab];let kind;
+ if(o.includes(id)){save.eq[shopTab]=id;kind='eq'}
+ else if(save.coins>=CUST_PRICE){save.coins-=CUST_PRICE;o.push(id);save.eq[shopTab]=id;kind='buy'}
+ else kind='no';
+ if(kind!='no'){persist();mpMetaUpdate()}fillShop();shopReact(kind,c);return kind!='no'}
+function openPicker(){const S=shopSt;if(!S||S.closing||ov.querySelector('.pickwrap'))return;
+ if(save.coins<CUST_PRICE){shopReact('no',{id:'cu',price:CUST_PRICE});return}
+ const v={r:90,g:200,b:255},hex=()=>'#'+[v.r,v.g,v.b].map(n=>n.toString(16).padStart(2,'0')).join('');
+ const w=el('div','pickwrap'),bx=el('div','pickbox'),sw=el('div','pksw'),code=el('div','pkcode'),rows={};
+ bx.append(el('h2','','СВОЙ ЦВЕТ'),sw,code);
+ const upd=()=>{sw.style.background=hex();code.textContent=hex().toUpperCase();
+  for(const k in rows){const lo={...v,[k]:0},hi2={...v,[k]:255},f=o=>'rgb('+o.r+','+o.g+','+o.b+')';rows[k].inp.style.background='linear-gradient(90deg,'+f(lo)+','+f(hi2)+')';rows[k].val.textContent=v[k]}};
+ for(const[k,n,col]of[['r','R','#ff6b6b'],['g','G','#6bff8a'],['b','B','#6bb5ff']]){
+  const row=el('div','pkrow'),lab=el('span','pkl',n),inp=document.createElement('input'),val=el('span','pkv');
+  inp.type='range';inp.min=0;inp.max=255;inp.value=v[k];inp.className='pkr';lab.style.color=col;
+  inp.oninput=()=>{v[k]=+inp.value;upd()};row.append(lab,inp,val);rows[k]={inp,val};bx.append(row)}
+ bx.append(el('div','hint','ПОТОМ ЦВЕТ ИЗМЕНИТЬ НЕЛЬЗЯ — ТОЛЬКО КУПИТЬ НОВЫЙ'));
+ const buy=el('button','btn y');buy.append(el('span','','КУПИТЬ ЗА '),patCanvas(COIN,COINC,2),el('span','',' '+CUST_PRICE));
+ const cancel=el('button','btn','ОТМЕНА');
+ const cancelFn=()=>{w.remove();shopSay(pickP(SHOP_T.pickNo))};
+ buy.onclick=()=>{if(buyCustom(hex()))w.remove()};cancel.onclick=cancelFn;w.onclick=e=>{if(e.target===w)cancelFn()};
+ bx.append(buy,cancel);w.append(bx);ov.append(w);upd();shopSay(pickP(SHOP_T.pick))}
 function shopBye(){const S=shopSt;if(!S||S.closing)return;S.closing=true;shopSay(pickP(SHOP_T.bye));setTimeout(()=>{if(ui=='shop')closeUi()},950)}
 function renderShop(){ov.innerHTML='';ov.className='shop';
  const wrap=el('div','shopwrap'),p=el('div','pn'),sc=el('div','scene'),cv=document.createElement('canvas'),say=el('div','say');sc.append(cv,say);
  p.append(el('h2','','МАГАЗИН'));const bal=el('div','bal');p.append(bal);
- const tabs=el('div','tabs'),tb={};for(const[k,n]of[['shirt','ФУТБОЛКА'],['pants','ШТАНЫ']]){const b=el('button','tab',n);b.onclick=()=>{shopTab=k;fillShop()};tb[k]=b;tabs.append(b)}p.append(tabs);
+ const tabs=el('div','tabs'),tb={};for(const[k,n]of[['shirt','ФУТБОЛКА'],['pants','ШТАНЫ']]){const b=el('button','tab',n);b.onclick=()=>{if(shopTab!=k){shopTab=k;fillShop();shopSay(pickP(SHOP_T.tab[k]))}};tb[k]=b;tabs.append(b)}p.append(tabs);
  const grid=el('div','grid');p.append(grid);const back=el('button','btn','НАЗАД');back.onclick=shopBye;p.append(back);
  wrap.append(p,sc);ov.append(wrap);
  const dk=document.createElement('canvas');
  const S=shopSt={cv,dk,say,bal,grid,tabs:tb,eyes:[],part:[],sayT:0,idleT:0,talk:false,happy:0,angry:0,flash:0,hopT:1,closing:false,lastSay:performance.now(),cx:80,nx:20,lx:70,lw:0};
  fillShop();for(let i=0;i<9;i++){const e=spawnEye(S,120);e.age=Math.random()*e.life;S.eyes.push(e)}
  S.idleT=setInterval(()=>{if(!S.talk&&!S.closing&&performance.now()-S.lastSay>9000)shopSay(pickP(SHOP_T.idle))},3000);
- shopSay(pickP(SHOP_T.greet));cancelAnimationFrame(shopAnim);shopAnim=requestAnimationFrame(shopFrame)}
+ shopSay(pickP(greetPool()));cancelAnimationFrame(shopAnim);shopAnim=requestAnimationFrame(shopFrame)}
 function shopFrame(){const S=shopSt;if(!S||ui!='shop')return;shopAnim=requestAnimationFrame(shopFrame);
  const c=S.cv,cw=c.clientWidth,ch=c.clientHeight;if(!cw||!ch)return;
  const h=72,w=Math.max(96,Math.round(h*cw/ch));
@@ -382,9 +440,9 @@ function hit(x,y){const r=btnRects();for(const k in r){const q=r[k];if(x>=q.x-8&
 function sync(){held.left=held.right=held.crouch=held.jump=0;
  for(const id in touches){const k=touches[id];if(k in held)held[k]=1}
  if(keyDown.ArrowLeft||keyDown.KeyA)held.left=1;if(keyDown.ArrowRight||keyDown.KeyD)held.right=1;if(keyDown.ArrowDown||keyDown.KeyS)held.crouch=1}
-cv.addEventListener('pointerdown',e=>{e.preventDefault();const k=hit(e.clientX,e.clientY);touches[e.pointerId]=k;if(k=='fs')toggleFs();else if(state!='play'){const m=state=='menu'&&!ui?menuHit(e.clientX,e.clientY):null;if(m)openUi(m);else if(!ui)press()}else if(k=='jump')press('jump');sync()});
+cv.addEventListener('pointerdown',e=>{e.preventDefault();const k=hit(e.clientX,e.clientY);touches[e.pointerId]=k;if(state=='menu'&&!ui&&!uiBusy){menuPress=menuHit(e.clientX,e.clientY)||(menuT>15?'play':null)}if(k=='fs')toggleFs();else if(state!='play'){const m=state=='menu'&&!ui&&!uiBusy?menuHit(e.clientX,e.clientY):null;if(m)openUi(m);else if(!ui&&!uiBusy)press()}else if(k=='jump')press('jump');sync()});
 cv.addEventListener('pointermove',e=>{if(e.pointerId in touches){touches[e.pointerId]=hit(e.clientX,e.clientY);sync()}});
-['pointerup','pointercancel'].forEach(n=>cv.addEventListener(n,e=>{delete touches[e.pointerId];sync()}));
+['pointerup','pointercancel'].forEach(n=>cv.addEventListener(n,e=>{delete touches[e.pointerId];menuPress=null;sync()}));
 addEventListener('keydown',e=>{if(e.key=='Escape'&&ui){closeUi();return}if(e.target&&e.target.tagName=='INPUT')return;if(e.repeat)return;keyDown[e.code]=1;if(['Space','ArrowUp','KeyW'].includes(e.code)){e.preventDefault();press('jump')}if(e.code.startsWith('Arrow'))e.preventDefault();sync()});
 addEventListener('keyup',e=>{delete keyDown[e.code];sync()});
 function die(c){state='dead';cause=c;dT=0;try{if(curG)curG.gain.setTargetAtTime(.25,AC.currentTime,.1)}catch(e){}shake=10;const s=Math.floor(P.maxX/T());if(s>hi){hi=s;try{localStorage.setItem('nooboo_hi',hi)}catch(e){}}}
@@ -489,14 +547,14 @@ function draw(){
   ctx.textAlign='center';ctx.font=F(ss);
   ctx.globalAlpha=cl(menuT,30,20);tx('ПРИКЛЮЧЕНИЯ НУБИКА',W/2,Math.round(H*.26+ts*.9),'#9fe8ff');
   const bw=Math.min(W*.7,320),bh=56,bx=Math.round((W-bw)/2),d3=cl(menuT,25,25),by=Math.round(H*.55+(1-ease(d3))*H*.4);
-  const g=Math.round(beat*5);ctx.globalAlpha=d3;ctx.fillStyle='#000';ctx.fillRect(bx-4-g,by-4-g,bw+8+2*g,bh+8+2*g);ctx.fillStyle=beat>.5?'#fff4b0':'#ffd23f';ctx.fillRect(bx-g,by-g,bw+2*g,bh+2*g);
+  for(const k in mpr)mpr[k]+=((menuPress==k?1:0)-mpr[k])*.4;const po=Math.round(mpr.play*5),g=Math.round(beat*5);ctx.globalAlpha=d3;ctx.save();ctx.translate(0,po);ctx.fillStyle='#000';ctx.fillRect(bx-4-g,by-4-g,bw+8+2*g,bh+8+2*g);ctx.fillStyle=beat>.5?'#fff4b0':'#ffd23f';ctx.fillRect(bx-g,by-g,bw+2*g,bh+2*g);
   ctx.fillStyle='#c9a000';ctx.fillRect(bx-g,by+bh+g-8,bw+2*g,8);ctx.fillStyle='#fff4b0';ctx.fillRect(bx-g,by-g,bw+2*g,4);
-  ctx.font=F(16);ctx.fillStyle='#222';ctx.fillText('ИГРАТЬ',W/2,by+bh/2+6);
+  ctx.font=F(16);ctx.fillStyle='#222';ctx.fillText('ИГРАТЬ',W/2,by+bh/2+6);ctx.fillStyle='rgba(0,0,0,'+(mpr.play*.1)+')';ctx.fillRect(bx-g,by-g,bw+2*g,bh+2*g);ctx.restore();
   {const gp=8,sw=Math.floor((bw-gp*2)/3),sh2=44,sy=by+bh+16;
-   const sb=(x,label,col)=>{ctx.fillStyle='#000';ctx.fillRect(x-3,sy-3,sw+6,sh2+6);ctx.fillStyle='#e8e8e8';ctx.fillRect(x,sy,sw,sh2);ctx.fillStyle='#a0a0a0';ctx.fillRect(x,sy+sh2-5,sw,5);
+   const sb=(x,label,col,id)=>{ctx.save();ctx.translate(0,Math.round(mpr[id]*4));ctx.fillStyle='#000';ctx.fillRect(x-3,sy-3,sw+6,sh2+6);ctx.fillStyle='#e8e8e8';ctx.fillRect(x,sy,sw,sh2);ctx.fillStyle='#a0a0a0';ctx.fillRect(x,sy+sh2-5,sw,5);
     ctx.fillStyle='#222';ctx.textAlign='center';ctx.font=F(8);if(ctx.measureText(label).width>sw-10)ctx.font=F(6);ctx.fillText(label,x+sw/2,sy+sh2/2+4);
-    if(col){ctx.fillStyle='#000';ctx.fillRect(x+sw-14,sy+3,11,11);ctx.fillStyle=col;ctx.fillRect(x+sw-12,sy+5,7,7)}};
-   sb(bx,'МАГАЗИН',null);sb(bx+sw+gp,'МУЛЬТИ'+(mpLive()?' '+Math.max(1,mp.online):''),mpCol());sb(bx+(sw+gp)*2,'ЛИДЕРЫ',null)}
+    if(col){ctx.fillStyle='#000';ctx.fillRect(x+sw-14,sy+3,11,11);ctx.fillStyle=col;ctx.fillRect(x+sw-12,sy+5,7,7)}ctx.fillStyle='rgba(0,0,0,'+(mpr[id]*.12)+')';ctx.fillRect(x,sy,sw,sh2);ctx.restore()};
+   sb(bx,'МАГАЗИН',null,'shop');sb(bx+sw+gp,'МУЛЬТИ'+(mpLive()?' '+Math.max(1,mp.online):''),mpCol(),'mp');sb(bx+(sw+gp)*2,'ЛИДЕРЫ',null,'top')}
   ctx.globalAlpha=1;
   ctx.fillStyle='rgba(255,255,255,'+(beat*.08)+')';ctx.fillRect(0,0,W,H);
   if(bins){const nb=Math.min(32,Math.floor(W/12)),bwid=Math.floor(W/nb);for(let i=0;i<nb;i++){const v=bins[1+Math.floor(Math.pow(i/nb,1.6)*60)]/255,h=Math.floor(v*H*.2/6)*6;
