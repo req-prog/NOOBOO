@@ -147,7 +147,7 @@ function drawPat(rows,x,y,px,cm){rows.forEach((r,j)=>{for(let i=0;i<r.length;i++
 function drawBtn(q,pat,on){const x=Math.round(q.x),y=Math.round(q.y),w=Math.round(q.w),h=Math.round(q.h);ctx.fillStyle='#000';ctx.fillRect(x,y,w,h);ctx.fillStyle=on?'#ffd23f':'#e8e8e8';ctx.fillRect(x+3,y+3,w-6,h-6);ctx.fillStyle=on?'#c9a000':'#a0a0a0';ctx.fillRect(x+3,y+h-7,w-6,4);ctx.fillRect(x+w-7,y+3,4,h-6);const px=Math.max(2,Math.floor(w*.55/8));drawPat(pat,x+Math.floor((w-8*px)/2),y+Math.floor((h-8*px)/2)-1,px,'#222')}
 function tx(t,x,y,c){ctx.fillStyle='#000';ctx.fillText(t,x+2,y+2);ctx.fillStyle=c||'#fff';ctx.fillText(t,x,y)}
 function toggleFs(){try{const d=document,e=d.documentElement,on=d.fullscreenElement||d.webkitFullscreenElement;const p=on?(d.exitFullscreen||d.webkitExitFullscreen).call(d):(e.requestFullscreen||e.webkitRequestFullscreen).call(e);if(p&&p.catch)p.catch(()=>{})}catch(x){}}
-let cause='',dT=0,state='gate',t=0,hi=0,P,plats,saws,spikes=[],anvils=[],fx=[],recN=0,coinsL,genX,camX,camY,coins,shake=0,clouds=[],lastLand=0;
+let cause='',dT=0,state='gate',t=0,hi=0,P,plats,saws,spikes=[],anvils=[],vents=[],fx=[],recN=0,coinsL,genX,camX,camY,coins,shake=0,clouds=[],lastLand=0;
 try{hi=+localStorage.getItem('nooboo_hi')||0}catch(e){}
 const held={left:0,right:0,crouch:0,jump:0},keyDown={},touches={};
 function T(){return img.grass2.width}
@@ -454,7 +454,7 @@ function menuHit(x,y){if(menuT<25)return null;const bw=Math.min(W*.7,320),bx=Mat
 function reset(){forceSpr=null;rec=[];rngOn=mp.on&&!!save.prof;rngS=LEVEL_SEED;mpTick=0;
  P={x:20,y:0,vx:0,vy:0,face:1,ground:true,crouch:false,walk:0,land:0,maxX:20};
  qEnsure();qLD=Math.floor(P.maxX/T());qStart=performance.now();qClose=0;
- plats=[];saws=[];spikes=[];anvils=[];fx=[];recN=0;coinsL=[];coins=0;camX=P.x-VW*0.35;camY=-VH*0.7;genX=-T()*2;gen(true);
+ plats=[];saws=[];spikes=[];anvils=[];vents=[];fx=[];recN=0;coinsL=[];coins=0;camX=P.x-VW*0.35;camY=-VH*0.7;genX=-T()*2;gen(true);
  camX=P.x-VW*0.35;camY=-VH*0.7;
  clouds=[...Array(6)].map((_,i)=>({x:i*60,y:5+Math.random()*40,s:.5+Math.random()}));
 }
@@ -471,11 +471,15 @@ function gen(first){
   if(n>=5&&p.x>140&&H1(p.x+7)<.35){ // наковальня на нитке: заменяет пилу/шипы на этой платформе (рандом не трогаем - трасса одинакова у всех)
    saws.length=sc;spikes.length=spc;
    anvils.push({x:Math.round(p.x+38+H1(p.x+8)*(p.w-76)),hb:28+Math.floor(H1(p.x+9)*44),R:8+Math.floor(H1(p.x+10)*70),st:0,y:0,vy:0,rel:-1});anvils[anvils.length-1].y=-anvils[anvils.length-1].hb}
+  // НОВОЕ: огненный гейзер (только на чистой платформе) и алмаз (5 монет) - на хэше, RND не трогаем
+  if(n>=5&&p.x>120&&!anvils.some(a=>a.x>p.x&&a.x<p.x+p.w)&&H1(p.x+11)<.3){saws.length=sc;spikes.length=spc;
+   vents.push({x:Math.round(p.x+36+H1(p.x+12)*(p.w-72)),ph:Math.floor(H1(p.x+13)*140),per:140})}
   for(let i=1;i<n-1;i++)if(RND()<.4)coinsL.push({x:p.x+10+i*T(),y:-(10+RND()*30)});
   genX+=p.w+T()*(1+RND()*1.4);
  }
- const cut=(camX||0)-700;plats=plats.filter(p=>p.x+p.w>cut);saws=saws.filter(s=>s.px>cut);spikes=spikes.filter(s=>s.x+s.w>cut);anvils=anvils.filter(a=>a.x+30>cut);fx=fx.filter(f=>f.x>cut&&!f.dead);coinsL=coinsL.filter(c=>c.x>cut);
+ const cut=(camX||0)-700;plats=plats.filter(p=>p.x+p.w>cut);saws=saws.filter(s=>s.px>cut);spikes=spikes.filter(s=>s.x+s.w>cut);anvils=anvils.filter(a=>a.x+30>cut);vents=vents.filter(v=>v.x>cut);fx=fx.filter(f=>f.x>cut&&!f.dead);coinsL=coinsL.filter(c=>c.x>cut);
 }
+const VH_MAX=128;function ventH(v){const k=(t+v.ph)%v.per;if(k<40)return 0;if(k<70)return -1;const u=k-70;return u<8?u*16:u<62?VH_MAX:Math.max(0,VH_MAX-(u-62)*16)} // 0 - нет, -1 - искры, иначе высота пламени (128 - не перепрыгнуть)
 function sawPos(s,tt){const a=s.A*Math.sin((tt==null?t:tt)*s.sp*3+s.ph),d=s.L+4,py=-(15+7+d);return{a,x:s.px+Math.sin(a)*d,y:py+Math.cos(a)*d,cx:s.px+Math.sin(a)*s.L,cy:py+Math.cos(a)*s.L,py,r:7}}
 function hb(){const h=P.crouch?13:17;return{hw:4,hh:h}}
 function press(n){
@@ -596,6 +600,7 @@ function step(){
   for(const s of saws){const q=sawPos(s),cx=Math.max(P.x-h.hw,Math.min(q.x,P.x+h.hw)),cy=Math.max(P.y-h.hh,Math.min(q.y,P.y));
    if((q.x-cx)**2+(q.y-cy)**2<q.r*q.r){die('saw');break}}
   if(state=='play')for(const s of spikes){if(P.x+h.hw>s.x+2&&P.x-h.hw<s.x+s.w-2&&P.y>-img.spike.height+2){P.y=0;P.vy=0;P.vx=0;die('spike');break}}
+  if(state=='play')for(const v of vents){const fh=ventH(v);if(fh>6&&Math.abs(P.x-v.x)<h.hw+4&&P.y>-fh){P.vx=0;bloodBurst(P.x,P.y-8);die('fire');break}}
   if(state=='play')for(const a of anvils)if(a.st==0&&P.x>a.x-22&&P.x<a.x+30&&P.y-h.hh>-a.hb-2){a.st=1;a.vy=0;a.rel=recN} // прошёл под ней - нитка рвётся
   if(state=='play')for(let i=coinsL.length-1;i>=0;i--){const c=coinsL[i];if(Math.abs(c.x-P.x)<8&&Math.abs(c.y-(P.y-h.hh/2))<h.hh/2+4){coinsL.splice(i,1);coins++;save.coins++;save.total++;qAdd('coins',1);qMax('coinsrun',coins);persist()}}
   gen();
@@ -605,7 +610,7 @@ function step(){
  if(P&&(state=='play'||(state=='dead'&&dT<=40))){rec.push([+P.x.toFixed(1),+(state=='dead'&&cause=='lava'?Math.min(P.y,12):P.y).toFixed(1),P.face,SP.indexOf(sprite()),t]);recN++;if(rec.length>300)rec.shift()}
 }
 function sprite(){if(forceSpr)return forceSpr;
- if(state=='dead')return cause=='lava'?'ldeath':cause=='spike'?'spdeath':cause=='anvil'?'acrush':'sd'+Math.min(4,1+Math.floor(dT/7));
+ if(state=='dead')return cause=='lava'?'ldeath':cause=='spike'?'spdeath':cause=='anvil'?'acrush':cause=='fire'?'sd1':'sd'+Math.min(4,1+Math.floor(dT/7));
  if(P.crouch)return 'crouch';
  if(!P.ground)return P.vy<0?'jump':'fall';
  if(P.land>0)return 'land';
@@ -632,6 +637,16 @@ function draw(){
   else{const L=Math.max(3,Math.round(a.R*.75)),h1=L>>1,sw=Math.sin(t*.12+a.x)>.4?1:0;ctx.fillRect(ax+2,capY+1,1,h1);ctx.fillRect(ax+2+sw,capY+1+h1,1,L-h1)} // оборванная нитка болтается
   const dy=Math.round(a.y)+(a.st==2?1:0)-16;ctx.drawImage(img.anvil,ax-12,dy);
   if(a.st==3){ctx.fillStyle='#b3000c';ctx.fillRect(ax-10,dy+14,3,1);ctx.fillRect(ax-9,dy+15,1,2);ctx.fillRect(ax+6,dy+14,4,1);ctx.fillRect(ax+8,dy+15,1,3);ctx.fillRect(ax-2,dy+9,1,3);ctx.fillRect(ax,dy+12,2,1);ctx.fillStyle='#7a000c';ctx.fillRect(ax-1,dy+9,1,2)}}
+ for(const v of vents){const fh=ventH(v),vx=Math.round(v.x);
+  ctx.fillStyle='#2b2623';ctx.fillRect(vx-5,-2,11,2);ctx.fillStyle='#4a423c';ctx.fillRect(vx-4,-4,9,2);ctx.fillStyle='#6b6258';ctx.fillRect(vx-4,-4,9,1);ctx.fillStyle='#070402';ctx.fillRect(vx-2,-5,5,1);ctx.fillStyle='#d11a1a';ctx.fillRect(vx-1,-5,3,1);
+  if(fh==-1){for(let i=0;i<6;i++){const q=(t*2+i*13+v.x)%30;ctx.fillStyle=i%3==0?'#fff6c0':i%3==1?'#ffb02e':'#d11a1a';ctx.fillRect(vx+Math.round(Math.sin(i*2.1+t*.2)*3),-6-Math.floor(q),1,1)}}
+  else if(fh>0){
+   for(let y=0;y<fh;y+=2){const r=y/VH_MAX,w=Math.max(1,Math.round(5.2-r*3.2+Math.sin(y*.21-t*.35+v.x)*1.4+Math.sin(y*.5+t*.6)*.6)),sw=Math.round(Math.sin(y*.09-t*.22+v.x)*(1+r*3.5)),by=-6-y;
+    ctx.fillStyle=r<.22?'#8e0b14':'#b3000c';ctx.fillRect(vx-w+sw,by,w*2+1,2);
+    if(w>1){ctx.fillStyle=r<.5?'#ff5a12':'#ff8a1f';ctx.fillRect(vx-w+1+sw,by,Math.max(1,w*2-1),2)}
+    if(w>2){ctx.fillStyle=r<.45?'#ffc233':'#ffd95a';ctx.fillRect(vx-w+2+sw,by,Math.max(1,w*2-3),2)}
+    if(w>3&&r<.4){ctx.fillStyle='#fff3b0';ctx.fillRect(vx-1+sw,by,3,2)}}
+   for(let i=0;i<9;i++){const q=(t*1.3+i*29+v.x*3)%Math.max(20,fh),sx=Math.round(Math.sin(i*1.7+t*.11)*(4+q*.06));ctx.fillStyle=i%2?'#ffd95a':'#ff7a1a';ctx.fillRect(vx+sx,-8-Math.floor(q),1,1)}}}
  for(const c of coinsL)drawPat(COIN,Math.round(c.x-3.5),Math.round(c.y-3.5+Math.sin(t*.08+c.x)),1,COINC);
  const fan=img[Math.floor(t/5)%2?'fan2':'fan1'];
  for(const s of saws){const q=sawPos(s);
